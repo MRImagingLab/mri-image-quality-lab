@@ -10,7 +10,7 @@ The app allows students to explore how key image quality dimensions and common M
 
 This tool is designed **solely for teaching and demonstration**, including use in:
 
-- **BME4974 – Medical Image Processing**
+- **Medical Image Processing**
 - MRI physics and reconstruction courses
 - Self-study and visualization of MRI artifacts
 
