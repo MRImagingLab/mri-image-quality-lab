@@ -50,8 +50,3 @@ No installation is required for students.
 
 ---
 
-## 🧪 How to Run Locally (Optional)
-
-```bash
-pip install -r requirements.txt
-streamlit run app.py
