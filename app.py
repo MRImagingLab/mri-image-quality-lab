@@ -119,38 +119,42 @@ def apply_contrast_phantom(im_ref: np.ndarray, q: float):
     x = im_ref.astype(np.float32)
     q = float(np.clip(q, 0.0, 1.0))
 
-    # Reference window: stable across q (prevents "brightness drifting")
-    lo_ref, hi_ref = np.percentile(x, [1.0, 99.9])  # 99.9 preserves tiny bright spots better than 99.5
+    # Use a stable reference window from the input (no output-based renorm)
+    lo_ref, hi_ref = np.percentile(x, [0.5, 99.5])
     lo_ref = float(lo_ref); hi_ref = float(hi_ref)
 
-    # Foreground pivot to avoid background dominating
+    # Foreground pivot (avoid background dominating)
     thr = np.percentile(x, 10.0)
     fg = x[x > thr]
     center = float(np.median(fg)) if fg.size else float(np.median(x))
 
-    # Contrast gain
-    c = 0.35 + 1.65 * q  # 0.35x -> 2.0x
+    # Target contrast gain from slider
+    c_target = 0.35 + 1.65 * q  # 0.35x -> 2.0x
 
-    # Apply contrast
+    # Compute maximum gain that avoids saturation relative to [lo_ref, hi_ref]
+    x_min = float(x.min())
+    x_max = float(x.max())
+
+    # Avoid divide-by-zero if image is flat around center
+    eps = 1e-8
+    c_max_hi = (hi_ref - center) / (x_max - center + eps) if x_max > center else np.inf
+    c_max_lo = (center - lo_ref) / (center - x_min + eps) if x_min < center else np.inf
+    c_max = max(0.0, min(c_max_hi, c_max_lo))
+
+    # Use the smaller of target and allowable gain (slight safety margin)
+    c = min(c_target, 0.98 * c_max) if np.isfinite(c_max) else c_target
+    c = max(0.0, c)
+
+    # Apply contrast (guaranteed not to saturate within reference window)
     y = center + c * (x - center)
 
-    # Normalize using reference window (NOT y's percentiles)
-    y = (y - lo_ref) / (hi_ref - lo_ref + 1e-8)
-
-    # Soft shoulder to avoid saturating the bright point (keeps it visible)
-    # Shoulder strength increases slightly with q.
-    s = 0.15 + 0.20 * q  # 0.15..0.35
-    y = y / (1.0 + s * np.maximum(y - 1.0, 0.0))  # compress only above 1
-
+    # Map to [0,1] using the SAME reference window
+    y = (y - lo_ref) / (hi_ref - lo_ref + eps)
     y = np.clip(y, 0.0, 1.0)
 
-    return y, {
-        "contrast_scale": c,
-        "pivot": center,
-        "lo_ref": lo_ref,
-        "hi_ref": hi_ref,
-        "shoulder": float(s),
-    }
+    return y, {"contrast_scale": float(c), "contrast_target": float(c_target),
+               "contrast_cap": float(c_max), "pivot": float(center),
+               "lo_ref": lo_ref, "hi_ref": hi_ref}}
     
 def apply_contrast_display(im_ref: np.ndarray, q: float):
     """Display contrast: stable window + S-curve, preserves small bright points."""
