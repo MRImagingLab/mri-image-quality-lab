@@ -116,70 +116,20 @@ def apply_snr(im_ref: np.ndarray, q: float):
 
 def apply_contrast_phantom(im_ref: np.ndarray, q: float):
     """Contrast: low->high means tissue differences increase (phantom-style)."""
-    x = im_ref.astype(np.float32)
-    q = float(np.clip(q, 0.0, 1.0))
+    # Contrast scaling around the median intensity (robust to outliers)
+    center = float(np.median(im_ref))
+    c = 0.35 + 1.65 * q  # 0.35x to 2.0x contrast
+    im_out = center + c * (im_ref - center)
+    im_out = np.clip(im_out, 0.0, 1.0)
+    return im_out, {"contrast_scale": c}
 
-    # Use a stable reference window from the input (no output-based renorm)
-    lo_ref, hi_ref = np.percentile(x, [0.5, 99.5])
-    lo_ref = float(lo_ref); hi_ref = float(hi_ref)
-
-    # Foreground pivot (avoid background dominating)
-    thr = np.percentile(x, 10.0)
-    fg = x[x > thr]
-    center = float(np.median(fg)) if fg.size else float(np.median(x))
-
-    # Target contrast gain from slider
-    c_target = 0.35 + 1.65 * q  # 0.35x -> 2.0x
-
-    # Compute maximum gain that avoids saturation relative to [lo_ref, hi_ref]
-    x_min = float(x.min())
-    x_max = float(x.max())
-
-    # Avoid divide-by-zero if image is flat around center
-    eps = 1e-8
-    c_max_hi = (hi_ref - center) / (x_max - center + eps) if x_max > center else np.inf
-    c_max_lo = (center - lo_ref) / (center - x_min + eps) if x_min < center else np.inf
-    c_max = max(0.0, min(c_max_hi, c_max_lo))
-
-    # Use the smaller of target and allowable gain (slight safety margin)
-    c = min(c_target, 0.98 * c_max) if np.isfinite(c_max) else c_target
-    c = max(0.0, c)
-
-    # Apply contrast (guaranteed not to saturate within reference window)
-    y = center + c * (x - center)
-
-    # Map to [0,1] using the SAME reference window
-    y = (y - lo_ref) / (hi_ref - lo_ref + eps)
-    y = np.clip(y, 0.0, 1.0)
-
-    return y, {"contrast_scale": float(c), "contrast_target": float(c_target),
-               "contrast_cap": float(c_max), "pivot": float(center),
-               "lo_ref": lo_ref, "hi_ref": hi_ref}
-    
 def apply_contrast_display(im_ref: np.ndarray, q: float):
-    """Display contrast: stable window + S-curve, preserves small bright points."""
-    x = im_ref.astype(np.float32)
-    q = float(np.clip(q, 0.0, 1.0))
-
-    # Stable robust window for visibility of bright spots
-    lo, hi = np.percentile(x, [1.0, 99.9])
-    lo = float(lo); hi = float(hi)
-
-    y = (x - lo) / (hi - lo + 1e-8)
-    y = np.clip(y, 0.0, 1.0)
-
-    # Contrast S-curve centered at 0.5
-    # k=0 (low contrast) -> near linear; higher k -> more contrast
-    k = 1.0 + 6.0 * q  # 1..7
-    y = 1.0 / (1.0 + np.exp(-k * (y - 0.5)))
-
-    # Re-anchor endpoints (so black stays black and white stays white)
-    y0 = 1.0 / (1.0 + np.exp(-k * (0.0 - 0.5)))
-    y1 = 1.0 / (1.0 + np.exp(-k * (1.0 - 0.5)))
-    y = (y - y0) / (y1 - y0 + 1e-8)
-
-    y = np.clip(y, 0.0, 1.0)
-    return y, {"k": float(k), "lo": lo, "hi": hi}
+    """Contrast for uploaded images: window/level + gamma-like display mapping."""
+    # Keep it simple: gamma mapping (low contrast -> gamma>1 flattening; high -> gamma<1)
+    gamma = 2.2 - 1.8 * q  # 2.2 (low) to 0.4 (high)
+    im_out = np.clip(im_ref, 0.0, 1.0) ** gamma
+    im_out = normalize01(im_out)
+    return im_out, {"gamma": gamma}
 
 def load_uploaded_image(file, n_target: int = 256) -> np.ndarray:
     """Load image as grayscale float32 [0,1] and resize to n_target x n_target."""
