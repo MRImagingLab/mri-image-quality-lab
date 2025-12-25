@@ -115,32 +115,27 @@ def apply_snr(im_ref: np.ndarray, q: float):
     return im_out, {"noise_sigma_rel": sigma, "relative_snr_proxy": rsnr}
 
 def apply_contrast_phantom(im_ref: np.ndarray, q: float):
-    """
-    Contrast: low -> high
-    Linear contrast scaling around a foreground pivot.
-    No hard clipping, no nonlinear suppression.
-    """
+    """Contrast: low->high means tissue differences increase (phantom-style)."""
+    x = im_ref.astype(np.float32)
     q = float(np.clip(q, 0.0, 1.0))
 
-    # Foreground pivot (avoid background-dominated median)
-    fg = im_ref[im_ref > np.percentile(im_ref, 10)]
-    center = float(np.median(fg)) if fg.size else float(np.median(im_ref))
+    # 1) Robust pivot: avoid background dominating the median (common in phantoms)
+    thr = np.percentile(x, 10)  # treat lowest ~10% as background-ish
+    fg = x[x > thr]
+    center = float(np.median(fg)) if fg.size > 0 else float(np.median(x))
 
-    # Contrast gain
-    c = 0.35 + 1.65 * q   # 0.35x → 2.0x
+    # 2) Contrast gain
+    c = 0.35 + 1.65 * q  # 0.35x to 2.0x contrast
 
-    # Apply contrast
-    im = center + c * (im_ref - center)
+    # 3) Apply contrast around pivot
+    y = center + c * (x - center)
 
-    # IMPORTANT: rescale, NOT clip
-    lo, hi = im.min(), im.max()
-    im = (im - lo) / (hi - lo + 1e-8)
+    # 4) Avoid saturation: rescale to [0,1] instead of hard clip
+    lo, hi = np.percentile(y, [0.5, 99.5])  # robust range; adjust if needed
+    y = (y - lo) / (hi - lo + 1e-8)
+    y = np.clip(y, 0.0, 1.0)
 
-    return im, {
-        "contrast_scale": c,
-        "pivot": center,
-    }
-
+    return y, {"contrast_scale": c, "pivot": center, "p_lo": float(lo), "p_hi": float(hi)}
 
 def apply_contrast_display(im_ref: np.ndarray, q: float):
     """Contrast for uploaded images: window/level + gamma-like display mapping."""
