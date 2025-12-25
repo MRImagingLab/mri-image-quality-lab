@@ -115,13 +115,22 @@ def apply_snr(im_ref: np.ndarray, q: float):
     return im_out, {"noise_sigma_rel": sigma, "relative_snr_proxy": rsnr}
 
 def apply_contrast_phantom(im_ref: np.ndarray, q: float):
-    """Contrast: low->high means tissue differences increase (phantom-style)."""
-    # Contrast scaling around the median intensity (robust to outliers)
+    """
+    Linear contrast scaling around a robust center with percentile renormalization.
+    Avoids saturation-induced contrast loss.
+    """
     center = float(np.median(im_ref))
-    c = 0.35 + 1.65 * q  # 0.35x to 2.0x contrast
-    im_out = center + c * (im_ref - center)
-    im_out = np.clip(im_out, 0.0, 1.0)
-    return im_out, {"contrast_scale": c}
+    c = 0.5 + 1.5 * q   # narrower, safer range: 0.5x–2.0x
+
+    im = center + c * (im_ref - center)
+
+    # Robust rescaling instead of clip
+    lo, hi = np.percentile(im, [1, 99])
+    im = (im - lo) / (hi - lo + 1e-8)
+    im = np.clip(im, 0.0, 1.0)
+
+    return im, {"contrast_scale": c}
+
 
 def apply_contrast_display(im_ref: np.ndarray, q: float):
     """Contrast for uploaded images: window/level + gamma-like display mapping."""
