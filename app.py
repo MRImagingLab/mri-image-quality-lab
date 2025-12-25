@@ -119,31 +119,63 @@ def apply_contrast_phantom(im_ref: np.ndarray, q: float):
     x = im_ref.astype(np.float32)
     q = float(np.clip(q, 0.0, 1.0))
 
-    # 1) Robust pivot: avoid background dominating the median (common in phantoms)
-    thr = np.percentile(x, 10)  # treat lowest ~10% as background-ish
+    # Reference window: stable across q (prevents "brightness drifting")
+    lo_ref, hi_ref = np.percentile(x, [1.0, 99.9])  # 99.9 preserves tiny bright spots better than 99.5
+    lo_ref = float(lo_ref); hi_ref = float(hi_ref)
+
+    # Foreground pivot to avoid background dominating
+    thr = np.percentile(x, 10.0)
     fg = x[x > thr]
-    center = float(np.median(fg)) if fg.size > 0 else float(np.median(x))
+    center = float(np.median(fg)) if fg.size else float(np.median(x))
 
-    # 2) Contrast gain
-    c = 0.35 + 1.65 * q  # 0.35x to 2.0x contrast
+    # Contrast gain
+    c = 0.35 + 1.65 * q  # 0.35x -> 2.0x
 
-    # 3) Apply contrast around pivot
+    # Apply contrast
     y = center + c * (x - center)
 
-    # 4) Avoid saturation: rescale to [0,1] instead of hard clip
-    lo, hi = np.percentile(y, [0.5, 99.5])  # robust range; adjust if needed
-    y = (y - lo) / (hi - lo + 1e-8)
+    # Normalize using reference window (NOT y's percentiles)
+    y = (y - lo_ref) / (hi_ref - lo_ref + 1e-8)
+
+    # Soft shoulder to avoid saturating the bright point (keeps it visible)
+    # Shoulder strength increases slightly with q.
+    s = 0.15 + 0.20 * q  # 0.15..0.35
+    y = y / (1.0 + s * np.maximum(y - 1.0, 0.0))  # compress only above 1
+
     y = np.clip(y, 0.0, 1.0)
 
-    return y, {"contrast_scale": c, "pivot": center, "p_lo": float(lo), "p_hi": float(hi)}
-
+    return y, {
+        "contrast_scale": c,
+        "pivot": center,
+        "lo_ref": lo_ref,
+        "hi_ref": hi_ref,
+        "shoulder": float(s),
+    }
+    
 def apply_contrast_display(im_ref: np.ndarray, q: float):
-    """Contrast for uploaded images: window/level + gamma-like display mapping."""
-    # Keep it simple: gamma mapping (low contrast -> gamma>1 flattening; high -> gamma<1)
-    gamma = 2.2 - 1.8 * q  # 2.2 (low) to 0.4 (high)
-    im_out = np.clip(im_ref, 0.0, 1.0) ** gamma
-    im_out = normalize01(im_out)
-    return im_out, {"gamma": gamma}
+    """Display contrast: stable window + S-curve, preserves small bright points."""
+    x = im_ref.astype(np.float32)
+    q = float(np.clip(q, 0.0, 1.0))
+
+    # Stable robust window for visibility of bright spots
+    lo, hi = np.percentile(x, [1.0, 99.9])
+    lo = float(lo); hi = float(hi)
+
+    y = (x - lo) / (hi - lo + 1e-8)
+    y = np.clip(y, 0.0, 1.0)
+
+    # Contrast S-curve centered at 0.5
+    # k=0 (low contrast) -> near linear; higher k -> more contrast
+    k = 1.0 + 6.0 * q  # 1..7
+    y = 1.0 / (1.0 + np.exp(-k * (y - 0.5)))
+
+    # Re-anchor endpoints (so black stays black and white stays white)
+    y0 = 1.0 / (1.0 + np.exp(-k * (0.0 - 0.5)))
+    y1 = 1.0 / (1.0 + np.exp(-k * (1.0 - 0.5)))
+    y = (y - y0) / (y1 - y0 + 1e-8)
+
+    y = np.clip(y, 0.0, 1.0)
+    return y, {"k": float(k), "lo": lo, "hi": hi}
 
 def load_uploaded_image(file, n_target: int = 256) -> np.ndarray:
     """Load image as grayscale float32 [0,1] and resize to n_target x n_target."""
