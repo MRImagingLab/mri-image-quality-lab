@@ -154,7 +154,7 @@ def apply_contrast_phantom(im_ref: np.ndarray, q: float):
 
     return y, {"contrast_scale": float(c), "contrast_target": float(c_target),
                "contrast_cap": float(c_max), "pivot": float(center),
-               "lo_ref": lo_ref, "hi_ref": hi_ref}}
+               "lo_ref": lo_ref, "hi_ref": hi_ref}
     
 def apply_contrast_display(im_ref: np.ndarray, q: float):
     """Display contrast: stable window + S-curve, preserves small bright points."""
