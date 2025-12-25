@@ -116,20 +116,33 @@ def apply_snr(im_ref: np.ndarray, q: float):
 
 def apply_contrast_phantom(im_ref: np.ndarray, q: float):
     """
-    Linear contrast scaling around a robust center with percentile renormalization.
-    Avoids saturation-induced contrast loss.
+    Contrast slider: low -> high (phantom-style).
+    Avoids saturation by using a soft shoulder instead of hard clipping.
+    Assumes im_ref is roughly in [0,1].
     """
-    center = float(np.median(im_ref))
-    c = 0.5 + 1.5 * q   # narrower, safer range: 0.5x–2.0x
+    q = float(np.clip(q, 0.0, 1.0))
 
+    # Pick pivot from foreground to avoid background median ~0
+    fg = im_ref[im_ref > np.percentile(im_ref, 10)]
+    center = float(np.median(fg)) if fg.size else float(np.median(im_ref))
+
+    # Contrast gain: 0.35x -> 2.0x
+    c = 0.35 + 1.65 * q
+
+    # Linear contrast around pivot
     im = center + c * (im_ref - center)
 
-    # Robust rescaling instead of clip
-    lo, hi = np.percentile(im, [1, 99])
+    # Soft clipping (logistic shoulder) to keep detail in bright regions
+    # Map around center; k controls shoulder strength.
+    k = 6.0  # 4–10 is a reasonable range
+    im = 1.0 / (1.0 + np.exp(-k * (im - center)))
+
+    # Re-normalize to [0,1] without hard saturation artifacts
+    lo, hi = np.percentile(im, [0.5, 99.5])
     im = (im - lo) / (hi - lo + 1e-8)
     im = np.clip(im, 0.0, 1.0)
 
-    return im, {"contrast_scale": c}
+    return im, {"contrast_scale": c, "pivot": center, "softclip_k": k}}
 
 
 def apply_contrast_display(im_ref: np.ndarray, q: float):
