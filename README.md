@@ -44,7 +44,7 @@ Each artifact includes a brief **teaching explanation**.
 
 The app is deployed using **Streamlit Cloud**.
 
-👉 https://mri-image-quality-lab-ppbesd8kn38xlg8jqc3ijg.streamlit.app/
+👉 https://mri-image-quality-lab-2tvyt2uctfuzgfvj3kzptp.streamlit.app/
 
 No installation is required for students.
 
