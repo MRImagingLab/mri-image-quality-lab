@@ -4,6 +4,9 @@ import streamlit as st
 import matplotlib.pyplot as plt
 from PIL import Image
 
+
+st.write("App started successfully")
+
 # -----------------------------
 # MRI Image Quality Slider Lab
 # -----------------------------
